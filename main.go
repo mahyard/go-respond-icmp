@@ -61,67 +61,6 @@ func main() {
 	log.Println("Shutting down ICMP Responder...")
 }
 
-// handlePacket processes each packet from the NFQUEUE
-func handlePacketBK(p nfqueue.NFPacket) {
-	payload := p.Packet.Data()
-
-	// Parse the IPv4 header
-	ipHeaderLen := int((payload[0] & 0x0F) * 4)
-	protocol := payload[9]
-
-	// Check if it's ICMP (protocol number 1)
-	if protocol != 1 {
-		p.SetVerdict(nfqueue.NF_ACCEPT)
-		return
-	}
-
-	// ICMP packet starts after the IP header
-	icmpPayload := payload[ipHeaderLen:]
-
-	// Check if it's an ICMP Echo Request
-	icmpType := icmpPayload[0]
-	if icmpType != ICMPEchoRequest {
-		p.SetVerdict(nfqueue.NF_ACCEPT)
-		return
-	}
-
-	log.Printf("Received ICMP Echo Request from %s", extractSrcIP(payload))
-
-	// --- Dump original packet ---
-	fmt.Println("====== ORIGINAL PACKET ======")
-	printPacket(payload)
-
-	// --- Fix: Swap Source/Destination IPs properly ---
-	srcIP := make([]byte, 4)
-	dstIP := make([]byte, 4)
-	copy(srcIP, payload[12:16])
-	copy(dstIP, payload[16:20])
-	copy(payload[12:16], dstIP)
-	copy(payload[16:20], srcIP)
-
-	// --- Fix: Recalculate IP Header Checksum ---
-	payload[10] = 0
-	payload[11] = 0
-	ipChecksum := calculateIPChecksum(payload[:ipHeaderLen])
-	payload[10] = byte(ipChecksum >> 8)
-	payload[11] = byte(ipChecksum & 0xFF)
-
-	// --- Modify ICMP to EchoReply ---
-	icmpPayload[0] = ICMPEchoReply
-	icmpPayload[2] = 0
-	icmpPayload[3] = 0
-	icmpChecksum := calculateChecksum(icmpPayload)
-	icmpPayload[2] = byte(icmpChecksum >> 8)
-	icmpPayload[3] = byte(icmpChecksum & 0xFF)
-
-	// --- Dump modified packet ---
-	fmt.Println("====== MODIFIED PACKET ======")
-	printPacket(payload)
-
-	// --- Accept and inject modified packet ---
-	p.SetVerdictWithPacket(nfqueue.NF_ACCEPT, payload)
-}
-
 func handlePacket(p nfqueue.NFPacket) {
 	payload := p.Packet.Data()
 	packet := gopacket.NewPacket(payload, layers.LayerTypeIPv4, gopacket.Default)
