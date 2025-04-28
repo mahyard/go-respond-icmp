@@ -184,7 +184,11 @@ func handlePacket(p nfqueue.NFPacket) {
 	fmt.Println("====== MODIFIED PACKET ======")
 	printPacket(modifiedPacket)
 
-	p.SetVerdictWithPacket(nfqueue.NF_ACCEPT, modifiedPacket)
+	// --- Send the crafted reply ---
+	sendICMPReply(ip.SrcIP, modifiedPacket)
+
+	// --- Drop the original packet ---
+	p.SetVerdict(nfqueue.NF_DROP)
 }
 
 // extractSrcIP extracts the source IP address from IPv4 header
@@ -224,4 +228,18 @@ func calculateIPChecksum(header []byte) uint16 {
 func printPacket(payload []byte) {
 	packet := gopacket.NewPacket(payload, layers.LayerTypeIPv4, gopacket.Default)
 	fmt.Println(packet.Dump())
+}
+
+func sendICMPReply(dstIP net.IP, icmpPayload []byte) {
+	conn, err := net.Dial("ip4:icmp", dstIP.String())
+	if err != nil {
+		log.Printf("Failed to dial raw ICMP: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(icmpPayload)
+	if err != nil {
+		log.Printf("Failed to send ICMP reply: %v", err)
+	}
 }
