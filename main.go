@@ -185,7 +185,7 @@ func handlePacket(p nfqueue.NFPacket) {
 	printPacket(modifiedPacket)
 
 	// --- Send the crafted reply ---
-	sendICMPReply(ip.SrcIP, modifiedPacket)
+	sendICMPReply(ip.SrcIP, icmp)
 
 	// --- Drop the original packet ---
 	p.SetVerdict(nfqueue.NF_DROP)
@@ -230,7 +230,7 @@ func printPacket(payload []byte) {
 	fmt.Println(packet.Dump())
 }
 
-func sendICMPReply(dstIP net.IP, icmpPayload []byte) {
+func sendICMPReply(dstIP net.IP, icmp *layers.ICMPv4) {
 	conn, err := net.Dial("ip4:icmp", dstIP.String())
 	if err != nil {
 		log.Printf("Failed to dial raw ICMP: %v", err)
@@ -238,7 +238,19 @@ func sendICMPReply(dstIP net.IP, icmpPayload []byte) {
 	}
 	defer conn.Close()
 
-	_, err = conn.Write(icmpPayload)
+	buffer := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
+
+	err = icmp.SerializeTo(buffer, opts)
+	if err != nil {
+		log.Printf("Failed to serialize ICMP: %v", err)
+		return
+	}
+
+	_, err = conn.Write(buffer.Bytes())
 	if err != nil {
 		log.Printf("Failed to send ICMP reply: %v", err)
 	}
