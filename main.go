@@ -14,7 +14,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -150,48 +149,13 @@ func handlePacket(p nfqueue.NFPacket) {
 		TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0),
 		Id:       icmp.Id,
 		Seq:      icmp.Seq,
-		Payload:  icmp.Payload,
 	}
 
 	// Send ICMP reply back
-	sendICMPReply(ip.SrcIP, newICMP)
+	sendICMPReply(ip.SrcIP, newICMP, icmp.Payload)
 
 	// Drop the original request
 	p.SetVerdict(nfqueue.NF_DROP)
-}
-
-// extractSrcIP extracts the source IP address from IPv4 header
-func extractSrcIP(payload []byte) net.IP {
-	return net.IPv4(payload[12], payload[13], payload[14], payload[15])
-}
-
-// calculateChecksum calculates ICMP checksum
-func calculateChecksum(data []byte) uint16 {
-	var sum uint32
-	for i := 0; i < len(data)-1; i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(data[i : i+2]))
-	}
-	if len(data)%2 == 1 {
-		sum += uint32(data[len(data)-1]) << 8
-	}
-	for (sum >> 16) > 0 {
-		sum = (sum & 0xFFFF) + (sum >> 16)
-	}
-	return ^uint16(sum)
-}
-
-func calculateIPChecksum(header []byte) uint16 {
-	var sum uint32
-	for i := 0; i < len(header)-1; i += 2 {
-		sum += uint32(binary.BigEndian.Uint16(header[i : i+2]))
-	}
-	if len(header)%2 == 1 {
-		sum += uint32(header[len(header)-1]) << 8
-	}
-	for (sum >> 16) > 0 {
-		sum = (sum & 0xFFFF) + (sum >> 16)
-	}
-	return ^uint16(sum)
 }
 
 func printPacket(payload []byte) {
@@ -199,7 +163,7 @@ func printPacket(payload []byte) {
 	fmt.Println(packet.Dump())
 }
 
-func sendICMPReply(dstIP net.IP, icmp *layers.ICMPv4) {
+func sendICMPReply(dstIP net.IP, icmp *layers.ICMPv4, payload []byte) {
 	conn, err := net.Dial("ip4:icmp", dstIP.String())
 	if err != nil {
 		log.Printf("Failed to dial raw ICMP: %v", err)
@@ -213,7 +177,10 @@ func sendICMPReply(dstIP net.IP, icmp *layers.ICMPv4) {
 		FixLengths:       true,
 	}
 
-	err = icmp.SerializeTo(buffer, opts)
+	err = gopacket.SerializeLayers(buffer, opts,
+		icmp,
+		gopacket.Payload(payload),
+	)
 	if err != nil {
 		log.Printf("Failed to serialize ICMP: %v", err)
 		return
