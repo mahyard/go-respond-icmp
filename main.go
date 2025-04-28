@@ -145,49 +145,18 @@ func handlePacket(p nfqueue.NFPacket) {
 
 	log.Printf("Received ICMP Echo Request from %s", ip.SrcIP)
 
-	// --- Dump original packet ---
-	fmt.Println("====== ORIGINAL PACKET ======")
-	printPacket(payload)
-
-	// Swap IPs
-	src := ip.SrcIP
-	ip.SrcIP = ip.DstIP
-	ip.DstIP = src
-
-	// Change ICMP Type
-	icmp.TypeCode = layers.ICMPv4TypeEchoReply
-
-	// Zero checksums to force recalculation
-	ip.Checksum = 0
-	icmp.Checksum = 0
-
-	// Serialize
-	buffer := gopacket.NewSerializeBuffer()
-	opts := gopacket.SerializeOptions{
-		ComputeChecksums: true, // <== THIS FIXES YOUR CHECKSUM
-		FixLengths:       true,
-	}
-	err := gopacket.SerializeLayers(buffer, opts,
-		ip,
-		icmp,
-		gopacket.Payload(icmp.Payload),
-	)
-	if err != nil {
-		log.Printf("Failed to serialize packet: %v", err)
-		p.SetVerdict(nfqueue.NF_ACCEPT)
-		return
+	// Create ICMP Echo Reply
+	newICMP := &layers.ICMPv4{
+		TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoReply, 0),
+		Id:       icmp.Id,
+		Seq:      icmp.Seq,
+		Payload:  icmp.Payload,
 	}
 
-	modifiedPacket := buffer.Bytes()
+	// Send ICMP reply back
+	sendICMPReply(ip.SrcIP, newICMP)
 
-	// Debug print
-	fmt.Println("====== MODIFIED PACKET ======")
-	printPacket(modifiedPacket)
-
-	// --- Send the crafted reply ---
-	sendICMPReply(ip.SrcIP, icmp)
-
-	// --- Drop the original packet ---
+	// Drop the original request
 	p.SetVerdict(nfqueue.NF_DROP)
 }
 
